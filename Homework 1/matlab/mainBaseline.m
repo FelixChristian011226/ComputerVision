@@ -33,22 +33,28 @@ for testId = 1 : 4
     m = find(mask1 == 1);
     p = length(m);
 
-    %% Standard photometric stereo
-    Normal = myPMS(data, m, 20);
-
-    %% Save results "png"
-    imwrite(uint8((Normal+1)*128).*uint8(mask3), strcat(dataName, '_Normal.png'));
-
-    %% Save results "mat"
-    save(strcat(dataName, '_Normal.mat'), 'Normal');
-
-    % % My photometric stereo function
-    % [N, rho] = myPMS(data, m);
+    % %% Standard photometric stereo
+    % Normal = myPMS(data, m);
     % 
-    % % Save results
-    % imwrite(uint8((N + 1) * 128), strcat(dataName, '_Normal.png'));  % 保存法向量为图像
-    % save(strcat(dataName, '_Normal.mat'), 'N');  % 保存法向量为 .mat 文件
+    % %% Save results "png"
+    % imwrite(uint8((Normal+1)*128).*uint8(mask3), strcat(dataName, '_Normal.png'));
     % 
-    % imwrite(uint8(rho * 255), strcat(dataName, '_Albedo.png'));  % 保存反射率为图像
-    % save(strcat(dataName, '_Albedo.mat'), 'rho');  % 保存反射率为 .mat 文件
+    % %% Save results "mat"
+    % save(strcat(dataName, '_Normal.mat'), 'Normal');
+
+    % My photometric stereo function
+    [N, albedo, re_rendered_img] = myPMS(data, m, 20);
+
+    outputDir = 'output';
+
+    normalFileName = fullfile(outputDir, strcat(dataName, '_Normal.png'));
+    imwrite(uint8((N + 1) * 128).*uint8(mask3), normalFileName);
+
+    albedoFileName = fullfile(outputDir, strcat(dataName, '_Albedo.png'));
+    imwrite(uint8(albedo * 255), albedoFileName);
+
+    reRenderedFileName = fullfile(outputDir, strcat(dataName, '_ReRendered.png'));
+    re_rendered_img = re_rendered_img / max(re_rendered_img(:));
+    imwrite(uint8(re_rendered_img * 255), reRenderedFileName);
+
 end
