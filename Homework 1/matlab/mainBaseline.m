@@ -57,4 +57,14 @@ for testId = 1 : 4
     re_rendered_img = re_rendered_img / max(re_rendered_img(:));
     imwrite(uint8(re_rendered_img * 255), reRenderedFileName);
 
+    normalMatFileName = fullfile(outputDir, strcat(dataName, '_Normal.mat'));
+    save(normalMatFileName, 'N');
+    
+    albedoMatFileName = fullfile(outputDir, strcat(dataName, '_Albedo.mat'));
+    save(albedoMatFileName, 'albedo');
+    
+    reRenderedMatFileName = fullfile(outputDir, strcat(dataName, '_ReRendered.mat'));
+    save(reRenderedMatFileName, 're_rendered_img');
+    
+
 end

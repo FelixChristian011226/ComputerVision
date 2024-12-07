@@ -3,10 +3,10 @@ function [N, albedo, re_rendered_img] = L2_PMS(data, m, shadow_removal_percentag
     num_images = size(data.s, 1);
     [height, width, ~] = size(data.imgs{1});
     
-    N = zeros(height, width, 3);      % Surface normals
-    albedo = zeros(height, width, 3);   % Albedo map
-    re_rendered_img = zeros(height, width, 3); % Re-rendered image
-    I = zeros(num_images, length(m), 3); % Image intensities for valid pixels
+    N = zeros(height, width, 3);
+    albedo = zeros(height, width, 3);
+    re_rendered_img = zeros(height, width, 3);
+    I = zeros(num_images, length(m), 3);
     
     % Extract pixel intensities for each image
     for c = 1:3
