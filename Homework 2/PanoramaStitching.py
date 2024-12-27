@@ -11,6 +11,7 @@ class Stitcher:
         self.left_list = []
         self.right_list = []
         self.center_image = None
+        self.matching_scores = self._calculate_matching_scores()
         self._prepare_image_lists()
 
     def _load_images(self):
@@ -22,16 +23,59 @@ class Stitcher:
         print("Loaded {} images from {}".format(len(images), self.folder_path))
         return images
 
+    def _calculate_matching_scores(self):
+        """Calculate matching scores for each image pair."""
+        scores = {}
+        for i, img1 in enumerate(self.images):
+            for j, img2 in enumerate(self.images):
+                if i >= j:
+                    continue
+                H = self.matcher.match(img1, img2)
+                if H is not None:
+                    score = self._calculate_homography_score(H)
+                    scores[(i, j)] = score
+        return scores
+
+    def _calculate_homography_score(self, H):
+        """Calculate a score for the homography matrix to evaluate its quality."""
+        if H is None:
+            return 0
+        # You can improve this by using a different method for scoring the homography quality.
+        return np.linalg.norm(H)
+
+    def _prepare_image_lists(self):
+        """Prepare left and right image lists based on matching scores."""
+        self.center_idx = len(self.images) // 2
+        self.center_image = self.images[self.center_idx]
+        self.left_list = [self.center_image]
+        self.right_list = []
+
+        # Define remaining images, excluding the center image
+        remaining_images = [i for i in range(len(self.images)) if i != self.center_idx]
+        
+        # Calculate matching scores for each image pair
+        matching_scores = {}
+        for idx in remaining_images:
+            scores = [
+                self.matching_scores.get((min(idx, other), max(idx, other)), 0)
+                for other in remaining_images
+            ]
+            matching_scores[idx] = max(scores) if scores else 0
+        
+        # Sort images based on matching scores
+        remaining_images.sort(key=lambda idx: matching_scores[idx], reverse=True)
+
+        # Arrange your images based on sorted matching scores
+        for idx in remaining_images:
+            if idx < self.center_idx:
+                self.left_list.append(self.images[idx])
+            else:
+                self.right_list.append(self.images[idx])
+
     def stitch(self):
         self._shift_left()
         self._shift_right()
         return self.left_image
-
-    def _prepare_image_lists(self):
-        self.center_idx = len(self.images) // 2
-        self.center_image = self.images[self.center_idx]
-        self.left_list = self.images[:self.center_idx + 1]
-        self.right_list = self.images[self.center_idx + 1:]
 
     def _shift_left(self):
         a = self.left_list[0]
