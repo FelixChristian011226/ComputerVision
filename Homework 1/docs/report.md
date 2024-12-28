@@ -1,4 +1,4 @@
-# Homework1-Photometric Stereo Report
+# Homework1-Photometric Stereo
 
 ## 一、实验目的
 
