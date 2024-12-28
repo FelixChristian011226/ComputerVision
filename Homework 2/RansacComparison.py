@@ -31,19 +31,23 @@ def pixel_descriptor(image, patch_size=8):
     descriptors = np.array(descriptors, dtype=np.float32)
     return keypoints, descriptors
 
-def match_descriptors(desc1, desc2, ratio=0.7):
+def match_descriptors(desc1, desc2, ratio=0.6):
     """Match descriptors using FLANN-based matcher."""
     index_params = dict(algorithm=1, trees=5)  # FLANN_INDEX_KDTREE = 1
     search_params = dict(checks=50)
     flann = cv2.FlannBasedMatcher(index_params, search_params)
     matches = flann.knnMatch(desc1, desc2, k=2)
 
-    good_matches = []
-    for m, n in matches:
-        if m.distance < ratio * n.distance:
-            good_matches.append(m)
+    # good_matches = []
+    # for m, n in matches:
+    #     if m.distance < ratio * n.distance:
+    #         good_matches.append(m)
+    # return good_matches
 
-    return good_matches
+    all_matches = []
+    for m, n in matches:
+        all_matches.append(m)
+    return all_matches 
 
 def estimate_homography(kp1, kp2, matches):
     """Estimate the homography matrix using RANSAC."""
@@ -54,6 +58,9 @@ def estimate_homography(kp1, kp2, matches):
     pts2 = np.float32([kp2[m.trainIdx].pt for m in matches])
 
     H, mask = cv2.findHomography(pts1, pts2, cv2.RANSAC, 4.0)
+    # print("mask length: {}".format(len(mask)))
+    # print("mask: {}".format(mask))
+
     inliers = mask.sum() if mask is not None else 0
 
     return H, inliers
@@ -70,8 +77,8 @@ def compare_descriptors(image1, image2, descriptor_func1, descriptor_func2, rans
     matches1 = match_descriptors(desc1_1, desc2_1)
     matches2 = match_descriptors(desc1_2, desc2_2)
 
-    print("Matches 1: {}".format(len(matches1)))
-    print("Matches 2: {}".format(len(matches2)))
+    # print("Matches 1: {}".format(len(matches1)))
+    # print("Matches 2: {}".format(len(matches2)))
 
     # Visualize the matches
     img_matches_1 = cv2.drawMatches(image1, kp1_1, image2, kp2_1, matches1, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
@@ -91,8 +98,11 @@ def compare_descriptors(image1, image2, descriptor_func1, descriptor_func2, rans
         H1, inliers1 = estimate_homography(kp1_1, kp2_1, random.sample(matches1, min(len(matches1), 10)))
         H2, inliers2 = estimate_homography(kp1_2, kp2_2, random.sample(matches2, min(len(matches2), 10)))
 
-        inlier_ratios_1.append(float(inliers1) / len(matches1) if matches1 else 0)
-        inlier_ratios_2.append(float(inliers2) / len(matches2) if matches2 else 0)
+        inlier_ratios_1.append(float(inliers1) / min(len(matches1), 10) if matches1 else 0)
+        inlier_ratios_2.append(float(inliers2) / min(len(matches2), 10) if matches2 else 0)
+
+    # print("Inlier Ratios 1: {}".format(inlier_ratios_1))
+    # print("Inlier Ratios 2: {}".format(inlier_ratios_2))
 
     avg_inlier_ratio_1 = np.mean(inlier_ratios_1)
     avg_inlier_ratio_2 = np.mean(inlier_ratios_2)
