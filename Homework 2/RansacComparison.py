@@ -56,9 +56,6 @@ def estimate_homography(kp1, kp2, matches):
     H, mask = cv2.findHomography(pts1, pts2, cv2.RANSAC, 4.0)
     inliers = mask.sum() if mask is not None else 0
 
-    # print("Mask: {}".format(mask))
-    # print("Inliers: {}".format(inliers))
-
     return H, inliers
 
 def compare_descriptors(image1, image2, descriptor_func1, descriptor_func2, ransac_tests=100):
@@ -75,6 +72,16 @@ def compare_descriptors(image1, image2, descriptor_func1, descriptor_func2, rans
 
     print("Matches 1: {}".format(len(matches1)))
     print("Matches 2: {}".format(len(matches2)))
+
+    # Visualize the matches
+    img_matches_1 = cv2.drawMatches(image1, kp1_1, image2, kp2_1, matches1, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    img_matches_2 = cv2.drawMatches(image1, kp1_2, image2, kp2_2, matches2, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+    # Display the matches
+    cv2.imshow("Matches 1 (SIFT)", img_matches_1)
+    cv2.imshow("Matches 2 (Pixel Value)", img_matches_2)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
     # Evaluate with RANSAC
     inlier_ratios_1 = []
@@ -112,8 +119,8 @@ def compare_descriptors(image1, image2, descriptor_func1, descriptor_func2, rans
     }
 
 if __name__ == "__main__":
-    image1 = cv2.imread("./data2/IMG_0488.JPG")
-    image2 = cv2.imread("./data2/IMG_0490.JPG")
+    image1 = cv2.imread("./data1/112_1298.JPG")
+    image2 = cv2.imread("./data1/112_1299.JPG")
 
     # image1 = cv2.resize(image1, (480, 320))
     # image2 = cv2.resize(image2, (480, 320))
