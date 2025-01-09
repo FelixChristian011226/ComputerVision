@@ -1,153 +1,157 @@
 import os
 import cv2
 import numpy as np
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import normalize
-from sklearn.metrics import accuracy_score
-from tqdm import tqdm
+from glob import glob
+from os.path import join
+from collections import defaultdict
+
 
 # 数据路径
-train_path = './data/train/'
-test_path = './data/test/'
+TRAIN_DATA = './data/train/'
+TEST_DATA = './data/test/'
 
-# 获取图片路径和标签
-def load_images_and_labels(path):
-    images = []
-    labels = []
-    label_map = {}
-    label_idx = 0
-    for label in os.listdir(path):
-        label_dir = os.path.join(path, label)
-        if os.path.isdir(label_dir):
-            if label not in label_map:
-                label_map[label] = label_idx
-                label_idx += 1
-            for img_name in os.listdir(label_dir):
-                img_path = os.path.join(label_dir, img_name)
-                if img_path.endswith(('.jpg', '.png', '.jpeg')):
-                    images.append(img_path)
-                    labels.append(label_map[label])
-    return images, np.array(labels), label_map
+# 类别映射
+label_map = {
+    'coast': 0, 'forest': 1, 'highway': 2, 'insidecity': 3, 'mountain': 4,
+    'office': 5, 'opencountry': 6, 'street': 7, 'suburb': 8, 'tallbuilding': 9,
+    'bedroom': 10, 'industrial': 11, 'kitchen': 12, 'livingroom': 13, 'store': 14
+}
+inv_label_map = {v: k for k, v in label_map.items()}
 
-# Tiny Images 特征提取
-def extract_tiny_images(image_paths, size=(16, 16)):
+
+# -------------------- Tiny Image Representation -------------------- #
+def load_tiny_imgs(data_path, img_size=(16, 16)):
+    """
+    加载 tiny image 特征，将图像缩放为 16x16，返回特征和对应标签。
+    """
     features = []
-    for img_path in tqdm(image_paths, desc="Extracting Tiny Images"):
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        img_resized = cv2.resize(img, size).flatten()
-        # 零均值和单位长度归一化
-        img_resized = img_resized - np.mean(img_resized)
-        img_resized = img_resized / np.linalg.norm(img_resized)
-        features.append(img_resized)
-    return np.array(features)
-
-# SIFT 特征提取
-def extract_sift_features(image_paths, step_size=8, sift=None):
-    if sift is None:
-        sift = cv2.SIFT_create()
-    descriptors = []
-    for img_path in tqdm(image_paths, desc="Extracting SIFT Features"):
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
+    labels = []
+    for category in sorted(os.listdir(data_path)):
+        category_path = join(data_path, category)
+        if not os.path.isdir(category_path):
             continue
-        # 使用密集采样
-        keypoints = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size)
-                     for x in range(0, img.shape[1], step_size)]
-        _, desc = sift.compute(img, keypoints)
-        if desc is not None:
-            descriptors.append(desc)
-    return descriptors
+        for img_path in glob(join(category_path, '*.jpg')):
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2.resize(img, img_size).astype(np.float32)
+            img = (img - np.mean(img)) / np.std(img)  # 归一化
+            features.append(img.flatten())
+            labels.append(label_map[category.lower()])
+    return np.array(features), np.array(labels)
 
-# 生成视觉单词表
-def build_vocabulary(descriptors_list, vocab_size=50):
-    all_descriptors = np.vstack(descriptors_list)
-    print("Clustering descriptors to build vocabulary...")
-    kmeans = KMeans(n_clusters=vocab_size, random_state=42)
-    kmeans.fit(all_descriptors)
+
+def knn_classifier(train_features, train_labels, test_features, k=1):
+    """
+    KNN 分类器，基于 L2 距离计算。
+    """
+    predictions = []
+    for test_feature in test_features:
+        distances = np.sqrt(np.sum((train_features - test_feature) ** 2, axis=1))
+        nearest_indices = np.argsort(distances)[:k]
+        nearest_labels = train_labels[nearest_indices]
+        # 投票决定类别
+        predictions.append(np.argmax(np.bincount(nearest_labels)))
+    return np.array(predictions)
+
+
+# -------------------- Bag of SIFT Representation -------------------- #
+def load_sift_features(data_path):
+    """
+    加载 SIFT 特征，返回每个类别的特征字典。
+    """
+    sift = cv2.SIFT_create()
+    features = defaultdict(list)
+    for category in sorted(os.listdir(data_path)):
+        category_path = join(data_path, category)
+        if not os.path.isdir(category_path):
+            continue
+        for img_path in glob(join(category_path, '*.jpg')):
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            _, desc = sift.detectAndCompute(img, None)
+            if desc is not None:
+                features[category.lower()].extend(desc)
+    return features
+
+
+def build_visual_vocab(features_dict, vocab_size=50):
+    """
+    构建视觉词汇表，使用 KMeans 聚类。
+    """
+    all_features = []
+    for category_features in features_dict.values():
+        all_features.extend(category_features)
+    all_features = np.array(all_features)
+    print(f"Clustering {len(all_features)} SIFT descriptors into {vocab_size} clusters...")
+    kmeans = KMeans(n_clusters=vocab_size, n_init='auto', random_state=42)
+    kmeans.fit(all_features)
     return kmeans
 
-# 使用视觉单词表生成 Bag of Words 特征
-def extract_bow_features(image_paths, kmeans, step_size=8, sift=None):
-    if sift is None:
-        sift = cv2.SIFT_create()
-    features = []
-    for img_path in tqdm(image_paths, desc="Extracting Bag of Words Features"):
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        if img is None:
+
+def extract_bow_histograms(data_path, kmeans, vocab_size):
+    """
+    提取图像的 Bag of Words 直方图特征。
+    """
+    sift = cv2.SIFT_create()
+    histograms = []
+    labels = []
+    for category in sorted(os.listdir(data_path)):
+        category_path = join(data_path, category)
+        if not os.path.isdir(category_path):
             continue
-        keypoints = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size)
-                     for x in range(0, img.shape[1], step_size)]
-        _, desc = sift.compute(img, keypoints)
-        if desc is not None:
-            # 计算最近的聚类中心
-            words = kmeans.predict(desc)
-            bow_hist = np.bincount(words, minlength=kmeans.n_clusters)
-            # 归一化直方图
-            bow_hist = bow_hist / np.linalg.norm(bow_hist)
-            features.append(bow_hist)
-        else:
-            features.append(np.zeros(kmeans.n_clusters))  # 如果没有提取到特征
-    return np.array(features)
+        for img_path in glob(join(category_path, '*.jpg')):
+            img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                continue
+            _, desc = sift.detectAndCompute(img, None)
+            if desc is not None:
+                words = kmeans.predict(desc)
+                histogram, _ = np.histogram(words, bins=np.arange(vocab_size + 1))
+                histogram = histogram.astype(np.float32)
+                histogram /= np.linalg.norm(histogram)  # 归一化
+                histograms.append(histogram)
+                labels.append(label_map[category.lower()])
+    return np.array(histograms), np.array(labels)
 
-# 类别准确率计算函数
-def calculate_class_accuracy(predictions, labels, label_map):
-    class_accuracy = {}
-    for label_name, label_idx in label_map.items():
-        # 找出属于当前类别的样本索引
-        indices = np.where(labels == label_idx)
-        # 计算该类别的准确率
-        correct_predictions = np.sum(predictions[indices] == labels[indices])
-        total_samples = len(indices[0])
-        accuracy = correct_predictions / total_samples if total_samples > 0 else 0
-        class_accuracy[label_name] = accuracy
-    return class_accuracy
 
-# 输出类别准确率
-def print_class_accuracies(class_accuracies):
-    print("\nClass-wise Accuracy:")
-    for label_name, accuracy in class_accuracies.items():
-        print(f"  {label_name}: {accuracy * 100:.2f}%")
-    mean_accuracy = np.mean(list(class_accuracies.values()))
-    print(f"\nMean Accuracy Across All Classes: {mean_accuracy * 100:.2f}%")
+# -------------------- Evaluation -------------------- #
+def compute_accuracy(predictions, labels):
+    """
+    根据预测值和真实标签计算 accuracy。
+    """
+    correct = predictions == labels
+    accuracy_per_class = {}
+    for label in np.unique(labels):
+        class_indices = labels == label
+        accuracy_per_class[inv_label_map[label]] = np.sum(correct[class_indices]) / np.sum(class_indices)
+    return accuracy_per_class, np.mean(list(accuracy_per_class.values()))
 
-# 加载数据
-train_images, train_labels, label_map = load_images_and_labels(train_path)
-test_images, test_labels, _ = load_images_and_labels(test_path)
 
-# Tiny Image 方法
-print("Running Tiny Images + Nearest Neighbor...")
-tiny_train_features = extract_tiny_images(train_images)
-tiny_test_features = extract_tiny_images(test_images)
+if __name__ == '__main__':
+    # Tiny Image + KNN
+    print("Running Tiny Image + KNN...")
+    train_tiny_features, train_tiny_labels = load_tiny_imgs(TRAIN_DATA)
+    test_tiny_features, test_tiny_labels = load_tiny_imgs(TEST_DATA)
+    tiny_predictions = knn_classifier(train_tiny_features, train_tiny_labels, test_tiny_features)
+    tiny_acc_per_class, tiny_avg_acc = compute_accuracy(tiny_predictions, test_tiny_labels)
+    print("\nTiny Image Results:")
+    for category, acc in tiny_acc_per_class.items():
+        print(f"{category}: {acc:.4f}")
+    print(f"Average Accuracy: {tiny_avg_acc:.4f}\n")
 
-knn_tiny = KNeighborsClassifier(n_neighbors=1)
-knn_tiny.fit(tiny_train_features, train_labels)
-tiny_predictions = knn_tiny.predict(tiny_test_features)
-
-# 按类别计算 Tiny Images 的准确率
-tiny_class_accuracies = calculate_class_accuracy(tiny_predictions, test_labels, label_map)
-print("\nTiny Images Class-wise Accuracy:")
-print_class_accuracies(tiny_class_accuracies)
-
-# Bag of SIFT 方法
-print("Running Bag of SIFT + Nearest Neighbor...")
-sift = cv2.SIFT_create()
-train_descriptors = extract_sift_features(train_images, sift=sift)
-test_descriptors = extract_sift_features(test_images, sift=sift)
-
-# 构建视觉单词表
-vocab_size = 50  # 可调整
-kmeans = build_vocabulary(train_descriptors, vocab_size)
-
-# 提取 Bag of Words 特征
-bow_train_features = extract_bow_features(train_images, kmeans, sift=sift)
-bow_test_features = extract_bow_features(test_images, kmeans, sift=sift)
-
-knn_bow = KNeighborsClassifier(n_neighbors=1)
-knn_bow.fit(bow_train_features, train_labels)
-bow_predictions = knn_bow.predict(bow_test_features)
-
-# 按类别计算 Bag of SIFT 的准确率
-bow_class_accuracies = calculate_class_accuracy(bow_predictions, test_labels, label_map)
-print("\nBag of SIFT Class-wise Accuracy:")
-print_class_accuracies(bow_class_accuracies)
+    # Bag of SIFT + KNN
+    print("Running Bag of SIFT + KNN...")
+    sift_features = load_sift_features(TRAIN_DATA)
+    vocab_sizes = [10, 30, 50, 70, 100]  # 不同的视觉词汇表大小
+    for vocab_size in vocab_sizes:
+        print(f"\nVisual Vocabulary Size: {vocab_size}")
+        kmeans = build_visual_vocab(sift_features, vocab_size=vocab_size)
+        train_bow_features, train_bow_labels = extract_bow_histograms(TRAIN_DATA, kmeans, vocab_size)
+        test_bow_features, test_bow_labels = extract_bow_histograms(TEST_DATA, kmeans, vocab_size)
+        bow_predictions = knn_classifier(train_bow_features, train_bow_labels, test_bow_features)
+        bow_acc_per_class, bow_avg_acc = compute_accuracy(bow_predictions, test_bow_labels)
+        print("Bag of SIFT Results:")
+        for category, acc in bow_acc_per_class.items():
+            print(f"{category}: {acc:.4f}")
+        print(f"Average Accuracy: {bow_avg_acc:.4f}")
